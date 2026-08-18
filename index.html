@@ -23,14 +23,14 @@
       -webkit-user-select: none;
     }
     .hud-glass {
-      background: rgba(15, 23, 42, 0.82);
+      background: rgba(15, 23, 42, 0.86);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.16);
     }
     #ARButton {
       position: fixed !important;
-      top: calc(env(safe-area-inset-top, 16px) + 10px) !important;
+      top: calc(env(safe-area-inset-top, 16px) + 8px) !important;
       left: 50% !important;
       transform: translateX(-50%) !important;
       bottom: auto !important;
@@ -61,7 +61,7 @@
 
   <!-- WebXR DOM Overlay Container -->
   <div id="ar-overlay" class="fixed inset-0 z-40 pointer-events-none flex flex-col justify-between" 
-       style="padding-top: calc(env(safe-area-inset-top, 0px) + 68px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); padding-left: 16px; padding-right: 16px;">
+       style="padding-top: calc(env(safe-area-inset-top, 0px) + 64px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); padding-left: 16px; padding-right: 16px;">
     
     <!-- Top HUD: Mode Selector & Unit Toggle -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-between gap-2 pointer-events-auto">
@@ -76,9 +76,9 @@
 
       <div class="hud-glass rounded-2xl p-1 shadow-2xl">
         <select id="unit-selector" onchange="setUnit(this.value)" class="bg-transparent text-xs font-bold text-white px-3 py-2 focus:outline-none cursor-pointer">
-          <option value="cm" class="bg-slate-900 text-white" selected>cm</option>
+          <option value="cm" class="bg-slate-900 text-white">cm</option>
+          <option value="in" class="bg-slate-900 text-white" selected>in</option>
           <option value="m" class="bg-slate-900 text-white">m</option>
-          <option value="in" class="bg-slate-900 text-white">in</option>
           <option value="ft" class="bg-slate-900 text-white">ft</option>
         </select>
       </div>
@@ -87,12 +87,12 @@
     <!-- Center Status & Readout Pill -->
     <div class="flex flex-col items-center">
       <div class="hud-glass px-6 py-3 rounded-3xl text-center shadow-2xl border border-indigo-500/30 min-w-[210px]">
-        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Aim at floor or table</div>
-        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5 leading-tight">0.0 cm</div>
+        <div id="status-text" class="text-[10px] uppercase font-bold text-amber-300 tracking-wider">Scanning... Move Phone Slowly</div>
+        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5 leading-tight">0.0 in</div>
       </div>
     </div>
 
-    <!-- Bottom Controls: Clear & Place Point -->
+    <!-- Bottom Controls -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-center space-x-4 pointer-events-auto">
       <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-900/90 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-slate-700 shadow-2xl active:scale-90 transition" title="Clear Points">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,7 +104,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
-        Place Point
+        + Place Point
       </button>
     </div>
 
@@ -119,9 +119,10 @@
     let hitTestSourceRequested = false;
 
     let mode = 'linear';
-    let unit = 'cm';
+    let unit = 'in';
     let basePoint = null;
     let liveLine = null;
+    let latestTargetPos = new THREE.Vector3();
 
     const placedAnchors = [];
     const solidLines = [];
@@ -148,6 +149,7 @@
     };
 
     window.clearPoints = () => {
+      if (navigator.vibrate) navigator.vibrate(30);
       basePoint = null;
       if (liveLine) {
         scene.remove(liveLine);
@@ -162,16 +164,24 @@
     };
 
     window.placePoint = () => {
-      if (!reticle || !reticle.visible) return;
+      if (navigator.vibrate) navigator.vibrate(40);
 
-      const currentPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+      // Determine 3D coordinates from reticle or forward camera fallback
+      let currentPos = new THREE.Vector3();
+      if (reticle && reticle.visible) {
+        currentPos.setFromMatrixPosition(reticle.matrix);
+      } else {
+        const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
+        currentPos.copy(camera.position).add(forward);
+      }
 
       if (!basePoint) {
         basePoint = currentPos.clone();
         const marker = createMarker(basePoint, 0x10b981);
         scene.add(marker);
         placedAnchors.push(marker);
-        statusText.innerText = mode === 'linear' ? "Aim at Point B & Tap" : "Raise Camera Up & Tap";
+        statusText.className = "text-[10px] uppercase font-bold text-emerald-300 tracking-wider";
+        statusText.innerText = mode === 'linear' ? "Point A Set! Move to Point B" : "Base Set! Raise Camera Up";
       } else {
         let targetPos = currentPos.clone();
         if (mode === 'height') {
@@ -190,7 +200,8 @@
           ? basePoint.distanceTo(targetPos) 
           : Math.abs(targetPos.y - basePoint.y);
 
-        statusText.innerText = mode === 'linear' ? "Linear Distance" : "Vertical Height";
+        statusText.className = "text-[10px] uppercase font-bold text-indigo-300 tracking-wider";
+        statusText.innerText = mode === 'linear' ? "Linear Distance Complete" : "Vertical Height Complete";
         readoutVal.innerText = formatDist(measured);
 
         if (liveLine) {
@@ -202,7 +213,7 @@
     };
 
     function createMarker(pos, colorHex) {
-      const geo = new THREE.SphereGeometry(0.016, 16, 16);
+      const geo = new THREE.SphereGeometry(0.018, 16, 16);
       const mat = new THREE.MeshBasicMaterial({ color: colorHex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(pos);
@@ -218,8 +229,8 @@
 
     function formatDist(meters) {
       switch (unit) {
-        case 'cm': return (meters * 100).toFixed(1) + ' cm';
         case 'in': return (meters * 39.37).toFixed(1) + ' in';
+        case 'cm': return (meters * 100).toFixed(1) + ' cm';
         case 'ft': return (meters * 3.281).toFixed(2) + ' ft';
         case 'm': default: return meters.toFixed(2) + ' m';
       }
@@ -245,7 +256,7 @@
       });
       document.body.appendChild(arButton);
 
-      // High-Visibility Dual Reticle
+      // Reticle Design
       const reticleGroup = new THREE.Group();
       const ringGeo = new THREE.RingGeometry(0.035, 0.045, 32).rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x818cf8, side: THREE.DoubleSide });
@@ -265,7 +276,7 @@
       scene.add(controller);
 
       renderer.xr.addEventListener('sessionstart', () => {
-        statusText.innerText = "Aim at floor or surface";
+        statusText.innerText = "Scanning... Move Phone Slowly";
       });
 
       renderer.xr.addEventListener('sessionend', () => {
@@ -303,6 +314,8 @@
           hitTestSourceRequested = true;
         }
 
+        let isSurfaceFound = false;
+
         if (hitTestSource) {
           const hitResults = frame.getHitTestResults(hitTestSource);
           if (hitResults.length > 0) {
@@ -311,32 +324,45 @@
 
             reticle.visible = true;
             reticle.matrix.fromArray(pose.transform.matrix);
+            latestTargetPos.setFromMatrixPosition(reticle.matrix);
+            isSurfaceFound = true;
 
-            const currentPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-
-            if (basePoint) {
-              let targetPos = currentPos;
-              let dist = 0;
-
-              if (mode === 'linear') {
-                dist = basePoint.distanceTo(targetPos);
-              } else {
-                targetPos = new THREE.Vector3(basePoint.x, currentPos.y, basePoint.z);
-                dist = Math.abs(currentPos.y - basePoint.y);
-              }
-
-              readoutVal.innerText = formatDist(dist);
-
-              if (liveLine) scene.remove(liveLine);
-              const geo = new THREE.BufferGeometry().setFromPoints([basePoint, targetPos]);
-              const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
-              liveLine = new THREE.Line(geo, mat);
-              liveLine.computeLineDistances();
-              scene.add(liveLine);
+            if (!basePoint) {
+              statusText.className = "text-[10px] uppercase font-bold text-emerald-400 tracking-wider";
+              statusText.innerText = "Surface Locked • Tap Place Point";
             }
           } else {
             reticle.visible = false;
+            const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
+            latestTargetPos.copy(camera.position).add(forward);
+
+            if (!basePoint) {
+              statusText.className = "text-[10px] uppercase font-bold text-amber-300 tracking-wider";
+              statusText.innerText = "Scanning... Move Phone Slowly";
+            }
           }
+        }
+
+        // Live Measuring Line Update
+        if (basePoint) {
+          let targetPos = latestTargetPos.clone();
+          let dist = 0;
+
+          if (mode === 'linear') {
+            dist = basePoint.distanceTo(targetPos);
+          } else {
+            targetPos = new THREE.Vector3(basePoint.x, latestTargetPos.y, basePoint.z);
+            dist = Math.abs(latestTargetPos.y - basePoint.y);
+          }
+
+          readoutVal.innerText = formatDist(dist);
+
+          if (liveLine) scene.remove(liveLine);
+          const geo = new THREE.BufferGeometry().setFromPoints([basePoint, targetPos]);
+          const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
+          liveLine = new THREE.Line(geo, mat);
+          liveLine.computeLineDistances();
+          scene.add(liveLine);
         }
       }
       renderer.render(scene, camera);
@@ -346,3 +372,4 @@
   </script>
 </body>
 </html>
+
