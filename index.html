@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>AR Measure App</title>
+  <title>AR Measure</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     * {
@@ -47,14 +47,12 @@
       box-shadow: 0 8px 28px rgba(79, 70, 229, 0.6) !important;
       cursor: pointer !important;
     }
-    /* Fixed 2D Center Crosshair */
-    .crosshair-center {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 30;
+    .crosshair-reticle {
+      transition: transform 0.15s ease, border-color 0.2s ease;
+    }
+    .reticle-locked {
+      border-color: #38bdf8 !important;
+      transform: scale(1.15);
     }
   </style>
   <script type="importmap">
@@ -68,21 +66,14 @@
 </head>
 <body class="relative">
 
-  <!-- Fixed 2D Target Crosshair -->
-  <div class="crosshair-center flex items-center justify-center">
-    <div id="crosshair-ring" class="w-12 h-12 rounded-full border-2 border-white/80 flex items-center justify-center transition-transform duration-150">
-      <div id="crosshair-dot" class="w-2 h-2 rounded-full bg-white shadow-[0_0_8px_#ffffff]"></div>
-    </div>
-  </div>
-
   <!-- WebXR DOM Overlay Container -->
   <div id="ar-overlay" class="fixed inset-0 z-40 pointer-events-none flex flex-col justify-between" 
        style="padding-top: calc(env(safe-area-inset-top, 0px) + 16px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); padding-left: 16px; padding-right: 16px;">
     
-    <!-- Top HUD: Mode Selector, Readout Pill & Unit Switcher -->
+    <!-- Top HUD Bar -->
     <div class="w-full max-w-sm mx-auto flex flex-col gap-2.5 pointer-events-auto">
       
-      <!-- Top Row: Segmented Switch & Unit -->
+      <!-- Mode Switcher & Units -->
       <div class="flex items-center justify-between gap-2">
         <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-2xl flex-1">
           <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all">
@@ -103,18 +94,30 @@
         </div>
       </div>
 
-      <!-- Top Measurement Banner (Clean & Non-Obtrusive) -->
+      <!-- Measurement Banner -->
       <div class="hud-glass px-4 py-2.5 rounded-2xl flex items-center justify-between shadow-2xl border border-indigo-500/30">
         <div>
           <div id="status-text" class="text-[9px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Base & Tap Place Point</div>
           <div id="readout-val" class="text-2xl font-mono font-bold text-white leading-tight">0.0 cm</div>
         </div>
-        <div id="lock-badge" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+        <div id="lock-badge" class="w-2.5 h-2.5 rounded-full bg-amber-400"></div>
       </div>
 
     </div>
 
-    <!-- Bottom Controls: Clear & Place Point -->
+    <!-- Center Screen Crosshair Indicator -->
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div id="center-crosshair" class="crosshair-reticle relative w-14 h-14 rounded-full border-2 border-white/80 flex items-center justify-center shadow-lg">
+        <div id="center-dot" class="w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_8px_#ffffff]"></div>
+        <!-- Corner tick marks -->
+        <div class="absolute -top-1 w-2 h-0.5 bg-white"></div>
+        <div class="absolute -bottom-1 w-2 h-0.5 bg-white"></div>
+        <div class="absolute -left-1 h-2 w-0.5 bg-white"></div>
+        <div class="absolute -right-1 h-2 w-0.5 bg-white"></div>
+      </div>
+    </div>
+
+    <!-- Bottom Controls -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-center space-x-4 pointer-events-auto">
       <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-900/90 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-slate-700 shadow-2xl active:scale-90 transition" title="Clear Points">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -136,7 +139,7 @@
     import * as THREE from 'three';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-    let scene, camera, renderer, reticle;
+    let scene, camera, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
 
@@ -146,7 +149,6 @@
     let liveLine = null;
     let liveHeightColumn = null;
 
-    // Smoothed Target Positioning
     const rawTargetPos = new THREE.Vector3();
     const smoothedTargetPos = new THREE.Vector3();
 
@@ -157,8 +159,8 @@
     const readoutVal = document.getElementById('readout-val');
     const lockBadge = document.getElementById('lock-badge');
     const overlayElement = document.getElementById('ar-overlay');
-    const crosshairDot = document.getElementById('crosshair-dot');
-    const crosshairRing = document.getElementById('crosshair-ring');
+    const centerCrosshair = document.getElementById('center-crosshair');
+    const centerDot = document.getElementById('center-dot');
 
     window.setMode = (newMode) => {
       mode = newMode;
@@ -207,13 +209,13 @@
         scene.add(baseMarker);
         placedAnchors.push(baseMarker);
 
-        statusText.innerText = mode === 'linear' ? "Point A Set! Move to Point B" : "Base Set! Raise Camera to Top";
+        statusText.innerText = mode === 'linear' ? "Point A Set! Aim at Point B" : "Base Set! Aim at Top Edge";
       } else {
         let finalPos = targetPos.clone();
 
         if (mode === 'height') {
-          // Lock strictly to the vertical column above base
-          finalPos = new THREE.Vector3(basePoint.x, targetPos.y, basePoint.z);
+          const calculatedHeight = computeHeightDelta(basePoint, camera);
+          finalPos = new THREE.Vector3(basePoint.x, basePoint.y + calculatedHeight, basePoint.z);
         }
 
         const endMarker = createMarker(finalPos, 0xf59e0b);
@@ -228,7 +230,7 @@
           ? basePoint.distanceTo(finalPos) 
           : Math.abs(finalPos.y - basePoint.y);
 
-        statusText.innerText = mode === 'linear' ? "Linear Distance Complete" : "Height Complete";
+        statusText.innerText = mode === 'linear' ? "Linear Complete" : "Height Complete";
         readoutVal.innerText = formatDist(measured);
 
         if (liveLine) {
@@ -242,6 +244,22 @@
         basePoint = null;
       }
     };
+
+    function computeHeightDelta(base, cam) {
+      // Ray-plane intersection from camera center to vertical plane through base
+      const ray = new THREE.Ray();
+      cam.getWorldPosition(ray.origin);
+      cam.getWorldDirection(ray.direction);
+
+      const planeNormal = new THREE.Vector3(cam.position.x - base.x, 0, cam.position.z - base.z).normalize();
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, base);
+
+      const hit = new THREE.Vector3();
+      if (ray.intersectPlane(plane, hit)) {
+        return Math.max(0, hit.y - base.y);
+      }
+      return Math.max(0, smoothedTargetPos.y - base.y);
+    }
 
     function createMarker(pos, colorHex) {
       const geo = new THREE.SphereGeometry(0.016, 16, 16);
@@ -288,21 +306,6 @@
       });
       document.body.appendChild(arButton);
 
-      // 3D Visual Reticle Ring on Floor/Plane
-      const reticleGroup = new THREE.Group();
-      const ringGeo = new THREE.RingGeometry(0.032, 0.042, 32).rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x818cf8, side: THREE.DoubleSide });
-      reticleGroup.add(new THREE.Mesh(ringGeo, ringMat));
-
-      const innerDotGeo = new THREE.CircleGeometry(0.006, 16).rotateX(-Math.PI / 2);
-      const innerDotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-      reticleGroup.add(new THREE.Mesh(innerDotGeo, innerDotMat));
-
-      reticle = reticleGroup;
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
-
       renderer.xr.addEventListener('sessionstart', () => {
         statusText.innerText = "Aim at Base & Tap Place Point";
       });
@@ -337,10 +340,11 @@
           session.addEventListener('end', () => {
             hitTestSourceRequested = false;
             hitTestSource = null;
-            reticle.visible = false;
           });
           hitTestSourceRequested = true;
         }
+
+        let isSurfaceHit = false;
 
         if (hitTestSource) {
           const hitResults = frame.getHitTestResults(hitTestSource);
@@ -348,33 +352,32 @@
             const hit = hitResults[0];
             const pose = hit.getPose(refSpace);
 
-            reticle.visible = true;
-            reticle.matrix.fromArray(pose.transform.matrix);
-            rawTargetPos.setFromMatrixPosition(reticle.matrix);
-
-            crosshairDot.style.background = "#34d399";
-            crosshairRing.style.borderColor = "#34d399";
-            lockBadge.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+            rawTargetPos.setFromMatrixPosition(new THREE.Matrix4().fromArray(pose.transform.matrix));
+            isSurfaceHit = true;
           } else {
-            // Smooth Camera-forward raycast fallback
-            const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
+            const forward = new THREE.Vector3(0, 0, -0.8).applyQuaternion(camera.quaternion);
             rawTargetPos.copy(camera.position).add(forward);
-            reticle.visible = false;
-
-            crosshairDot.style.background = "#ffffff";
-            crosshairRing.style.borderColor = "rgba(255, 255, 255, 0.7)";
-            lockBadge.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
           }
         }
 
-        // LERP Position Smoothing to eliminate jitter
-        smoothedTargetPos.lerp(rawTargetPos, 0.25);
+        // Target reticle visual styling
+        if (isSurfaceHit) {
+          centerCrosshair.classList.add('reticle-locked');
+          centerDot.style.background = "#38bdf8";
+          lockBadge.className = "w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse";
+        } else {
+          centerCrosshair.classList.remove('reticle-locked');
+          centerDot.style.background = "#ffffff";
+          lockBadge.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
+        }
 
-        // Live Measuring Pillar / Line
+        smoothedTargetPos.lerp(rawTargetPos, 0.28);
+
+        // Live Measuring Graphics
         if (basePoint) {
           if (mode === 'height') {
-            const topPos = new THREE.Vector3(basePoint.x, smoothedTargetPos.y, basePoint.z);
-            const deltaH = Math.abs(smoothedTargetPos.y - basePoint.y);
+            const deltaH = computeHeightDelta(basePoint, camera);
+            const topPos = new THREE.Vector3(basePoint.x, basePoint.y + deltaH, basePoint.z);
             readoutVal.innerText = formatDist(deltaH);
 
             if (liveHeightColumn) scene.remove(liveHeightColumn);
