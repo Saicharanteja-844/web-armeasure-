@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Real AR Measure App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+      touch-action: none;
+      user-select: none;
+    }
+    .hud-glass {
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="bg-black text-white h-screen w-screen relative">
+
+  <!-- HUD Interface -->
+  <div id="ar-ui" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4">
+    
+    <!-- Top Control Bar -->
+    <div class="flex items-center justify-between pointer-events-auto max-w-md mx-auto w-full gap-2">
+      <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-xl flex-1">
+        <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">
+          Linear Distance
+        </button>
+        <button id="btn-height" onclick="setMode('height')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition">
+          Vertical Height
+        </button>
+      </div>
+
+      <div class="hud-glass rounded-2xl p-1 shadow-xl">
+        <select id="unit-selector" onchange="setUnit(this.value)" class="bg-transparent text-xs font-bold text-white px-2.5 py-2 focus:outline-none cursor-pointer">
+          <option value="cm" class="bg-slate-900" selected>cm</option>
+          <option value="m" class="bg-slate-900">m</option>
+          <option value="in" class="bg-slate-900">in</option>
+          <option value="ft" class="bg-slate-900">ft</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Live Readout Banner -->
+    <div class="flex flex-col items-center">
+      <div class="hud-glass px-5 py-2.5 rounded-2xl text-center shadow-2xl border border-indigo-500/40 min-w-[180px]">
+        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Physical Surface</div>
+        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5">0.0 cm</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="flex items-center justify-center space-x-4 pointer-events-auto pb-4">
+      <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-800/80 hover:bg-rose-900 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 shadow-xl" title="Clear Points">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </button>
+
+      <button id="btn-action" onclick="placePoint()" class="px-8 h-14 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 font-bold text-base shadow-lg shadow-indigo-600/40 active:scale-95 transition flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Add Point
+      </button>
+    </div>
+
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
+
+    let scene, camera, renderer, reticle;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+
+    let mode = 'linear';
+    let unit = 'cm';
+    let basePoint = null;
+    let liveLine = null;
+
+    const placedAnchors = [];
+    const solidLines = [];
+
+    const statusText = document.getElementById('status-text');
+    const readoutVal = document.getElementById('readout-val');
+
+    window.setMode = (newMode) => {
+      mode = newMode;
+      clearPoints();
+      document.getElementById('btn-linear').className = newMode === 'linear'
+        ? "flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition"
+        : "flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition";
+      document.getElementById('btn-height').className = newMode === 'height'
+        ? "flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition"
+        : "flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition";
+      statusText.innerText = mode === 'linear' ? "Aim at Point A" : "Aim at Ground Base";
+    };
+
+    window.setUnit = (newUnit) => {
+      unit = newUnit;
+    };
+
+    window.clearPoints = () => {
+      basePoint = null;
+      if (liveLine) {
+        scene.remove(liveLine);
+        liveLine = null;
+      }
+      placedAnchors.forEach(mesh => scene.remove(mesh));
+      solidLines.forEach(line => scene.remove(line));
+      placedAnchors.length = 0;
+      solidLines.length = 0;
+      readoutVal.innerText = formatDist(0);
+      statusText.innerText = mode === 'linear' ? "Aim at Point A" : "Aim at Ground Base";
+    };
+
+    window.placePoint = () => {
+      if (!reticle.visible) return;
+
+      const currentPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+
+      if (!basePoint) {
+        basePoint = currentPos.clone();
+        const marker = createMarker(basePoint, 0x10b981);
+        scene.add(marker);
+        placedAnchors.push(marker);
+        statusText.innerText = mode === 'linear' ? "Aim at Point B & Tap" : "Move to Top Edge & Tap";
+      } else {
+        let targetPos = currentPos.clone();
+        if (mode === 'height') {
+          targetPos = new THREE.Vector3(basePoint.x, currentPos.y, basePoint.z);
+        }
+
+        const marker = createMarker(targetPos, 0xf59e0b);
+        scene.add(marker);
+        placedAnchors.push(marker);
+
+        const tube = createSolidLine(basePoint, targetPos, mode === 'linear' ? 0x10b981 : 0xf59e0b);
+        scene.add(tube);
+        solidLines.push(tube);
+
+        const measured = mode === 'linear' 
+          ? basePoint.distanceTo(targetPos) 
+          : Math.abs(targetPos.y - basePoint.y);
+
+        statusText.innerText = mode === 'linear' ? "Linear Distance" : "Vertical Height";
+        readoutVal.innerText = formatDist(measured);
+
+        if (liveLine) {
+          scene.remove(liveLine);
+          liveLine = null;
+        }
+        basePoint = null;
+      }
+    };
+
+    function createMarker(pos, colorHex) {
+      const geo = new THREE.SphereGeometry(0.015, 16, 16);
+      const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pos);
+      return mesh;
+    }
+
+    function createSolidLine(p1, p2, colorHex) {
+      const path = new THREE.LineCurve3(p1, p2);
+      const geo = new THREE.TubeGeometry(path, 1, 0.005, 8, false);
+      const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    function formatDist(meters) {
+      switch (unit) {
+        case 'cm': return (meters * 100).toFixed(1) + ' cm';
+        case 'in': return (meters * 39.37).toFixed(1) + ' in';
+        case 'ft': return (meters * 3.281).toFixed(2) + ' ft';
+        case 'm': default: return meters.toFixed(2) + ' m';
+      }
+    }
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      scene.add(light);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      const arButton = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test']
+      });
+      document.body.appendChild(arButton);
+
+      const ringGeo = new THREE.RingGeometry(0.03, 0.04, 32).rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x818cf8, side: THREE.DoubleSide });
+      reticle = new THREE.Mesh(ringGeo, ringMat);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      window.addEventListener('resize', onWindowResize);
+      renderer.setAnimationLoop(render);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function render(timestamp, frame) {
+      if (frame) {
+        const session = renderer.xr.getSession();
+        const refSpace = renderer.xr.getReferenceSpace();
+
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then((viewerSpace) => {
+            session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+              hitTestSource = source;
+            });
+          });
+          session.addEventListener('end', () => {
+            hitTestSourceRequested = false;
+            hitTestSource = null;
+            reticle.visible = false;
+          });
+          hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource) {
+          const hitResults = frame.getHitTestResults(hitTestSource);
+          if (hitResults.length > 0) {
+            const hit = hitResults[0];
+            const pose = hit.getPose(refSpace);
+
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+
+            const currentPos = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+
+            if (basePoint) {
+              let targetPos = currentPos;
+              let dist = 0;
+
+              if (mode === 'linear') {
+                dist = basePoint.distanceTo(targetPos);
+              } else {
+                targetPos = new THREE.Vector3(basePoint.x, currentPos.y, basePoint.z);
+                dist = Math.abs(currentPos.y - basePoint.y);
+              }
+
+              readoutVal.innerText = formatDist(dist);
+
+              if (liveLine) scene.remove(liveLine);
+              const geo = new THREE.BufferGeometry().setFromPoints([basePoint, targetPos]);
+              const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
+              liveLine = new THREE.Line(geo, mat);
+              liveLine.computeLineDistances();
+              scene.add(liveLine);
+            }
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+      renderer.render(scene, camera);
+    }
+
+    init();
+  </script>
+</body>
+</html>
