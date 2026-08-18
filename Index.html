@@ -9,15 +9,34 @@
     body {
       margin: 0;
       overflow: hidden;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       touch-action: none;
       user-select: none;
+      -webkit-user-select: none;
     }
     .hud-glass {
       background: rgba(15, 23, 42, 0.88);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    #ARButton {
+      position: fixed !important;
+      top: 14px !important;
+      bottom: auto !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+      color: #ffffff !important;
+      border: 1px solid rgba(255, 255, 255, 0.3) !important;
+      border-radius: 9999px !important;
+      padding: 10px 24px !important;
+      font-size: 14px !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.5px !important;
+      z-index: 99999 !important;
+      box-shadow: 0 4px 18px rgba(79, 70, 229, 0.5) !important;
+      cursor: pointer !important;
     }
   </style>
   <script type="importmap">
@@ -32,16 +51,16 @@
 <body class="bg-black text-white h-screen w-screen relative">
 
   <!-- HUD Interface -->
-  <div id="ar-ui" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4">
+  <div id="ar-ui" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 pt-16">
     
-    <!-- Top Control Bar -->
-    <div class="flex items-center justify-between pointer-events-auto max-w-md mx-auto w-full gap-2">
+    <!-- Top Bar: Mode Switcher & Unit Selection -->
+    <div class="flex items-center justify-between pointer-events-auto max-w-md mx-auto w-full gap-2 mt-2">
       <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-xl flex-1">
         <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">
-          Linear Distance
+          Linear
         </button>
         <button id="btn-height" onclick="setMode('height')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition">
-          Vertical Height
+          Height
         </button>
       </div>
 
@@ -55,17 +74,17 @@
       </div>
     </div>
 
-    <!-- Live Readout Banner -->
+    <!-- Center Live Readout Card -->
     <div class="flex flex-col items-center">
-      <div class="hud-glass px-5 py-2.5 rounded-2xl text-center shadow-2xl border border-indigo-500/40 min-w-[180px]">
-        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Physical Surface</div>
+      <div class="hud-glass px-5 py-2.5 rounded-2xl text-center shadow-2xl border border-indigo-500/40 min-w-[200px]">
+        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Tap 'START AR' at Top</div>
         <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5">0.0 cm</div>
       </div>
     </div>
 
-    <!-- Action Buttons -->
+    <!-- Bottom Actions: Clear & Place Point -->
     <div class="flex items-center justify-center space-x-4 pointer-events-auto pb-4">
-      <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-800/80 hover:bg-rose-900 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 shadow-xl" title="Clear Points">
+      <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-800/90 hover:bg-rose-900 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 shadow-xl active:scale-90 transition" title="Clear Points">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
@@ -75,7 +94,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
-        Add Point
+        + Place Point
       </button>
     </div>
 
@@ -114,6 +133,7 @@
 
     window.setUnit = (newUnit) => {
       unit = newUnit;
+      if (!basePoint) readoutVal.innerText = formatDist(0);
     };
 
     window.clearPoints = () => {
@@ -219,6 +239,16 @@
       reticle.visible = false;
       scene.add(reticle);
 
+      renderer.xr.addEventListener('sessionstart', () => {
+        statusText.innerText = "Aim at floor or table";
+      });
+
+      renderer.xr.addEventListener('sessionend', () => {
+        statusText.innerText = "Tap 'START AR' at Top";
+        hitTestSourceRequested = false;
+        hitTestSource = null;
+      });
+
       window.addEventListener('resize', onWindowResize);
       renderer.setAnimationLoop(render);
     }
@@ -291,3 +321,4 @@
   </script>
 </body>
 </html>
+
