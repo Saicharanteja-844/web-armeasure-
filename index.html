@@ -47,6 +47,15 @@
       box-shadow: 0 8px 28px rgba(79, 70, 229, 0.6) !important;
       cursor: pointer !important;
     }
+    /* Fixed 2D Center Crosshair */
+    .crosshair-center {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 30;
+    }
   </style>
   <script type="importmap">
     {
@@ -59,36 +68,53 @@
 </head>
 <body class="relative">
 
+  <!-- Fixed 2D Target Crosshair -->
+  <div class="crosshair-center flex items-center justify-center">
+    <div id="crosshair-ring" class="w-12 h-12 rounded-full border-2 border-white/80 flex items-center justify-center transition-transform duration-150">
+      <div id="crosshair-dot" class="w-2 h-2 rounded-full bg-white shadow-[0_0_8px_#ffffff]"></div>
+    </div>
+  </div>
+
+  <!-- WebXR DOM Overlay Container -->
   <div id="ar-overlay" class="fixed inset-0 z-40 pointer-events-none flex flex-col justify-between" 
-       style="padding-top: calc(env(safe-area-inset-top, 0px) + 20px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); padding-left: 16px; padding-right: 16px;">
+       style="padding-top: calc(env(safe-area-inset-top, 0px) + 16px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); padding-left: 16px; padding-right: 16px;">
     
-    <div class="w-full max-w-sm mx-auto flex items-center justify-between gap-2 pointer-events-auto">
-      <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-2xl flex-1">
-        <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition-all shadow">
-          Linear
-        </button>
-        <button id="btn-height" onclick="setMode('height')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all">
-          Height
-        </button>
+    <!-- Top HUD: Mode Selector, Readout Pill & Unit Switcher -->
+    <div class="w-full max-w-sm mx-auto flex flex-col gap-2.5 pointer-events-auto">
+      
+      <!-- Top Row: Segmented Switch & Unit -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-2xl flex-1">
+          <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all">
+            Linear
+          </button>
+          <button id="btn-height" onclick="setMode('height')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition-all shadow">
+            Height
+          </button>
+        </div>
+
+        <div class="hud-glass rounded-2xl p-1 shadow-2xl">
+          <select id="unit-selector" onchange="setUnit(this.value)" class="bg-transparent text-xs font-bold text-white px-3 py-2 focus:outline-none cursor-pointer">
+            <option value="cm" class="bg-slate-900 text-white" selected>cm</option>
+            <option value="m" class="bg-slate-900 text-white">m</option>
+            <option value="in" class="bg-slate-900 text-white">in</option>
+            <option value="ft" class="bg-slate-900 text-white">ft</option>
+          </select>
+        </div>
       </div>
 
-      <div class="hud-glass rounded-2xl p-1 shadow-2xl">
-        <select id="unit-selector" onchange="setUnit(this.value)" class="bg-transparent text-xs font-bold text-white px-3 py-2 focus:outline-none cursor-pointer">
-          <option value="cm" class="bg-slate-900 text-white" selected>cm</option>
-          <option value="m" class="bg-slate-900 text-white">m</option>
-          <option value="in" class="bg-slate-900 text-white">in</option>
-          <option value="ft" class="bg-slate-900 text-white">ft</option>
-        </select>
+      <!-- Top Measurement Banner (Clean & Non-Obtrusive) -->
+      <div class="hud-glass px-4 py-2.5 rounded-2xl flex items-center justify-between shadow-2xl border border-indigo-500/30">
+        <div>
+          <div id="status-text" class="text-[9px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Base & Tap Place Point</div>
+          <div id="readout-val" class="text-2xl font-mono font-bold text-white leading-tight">0.0 cm</div>
+        </div>
+        <div id="lock-badge" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
       </div>
+
     </div>
 
-    <div class="flex flex-col items-center pointer-events-none">
-      <div class="hud-glass px-6 py-3 rounded-3xl text-center shadow-2xl border border-indigo-500/30 min-w-[210px]">
-        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Base & Tap Place Point</div>
-        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5 leading-tight">0.0 cm</div>
-      </div>
-    </div>
-
+    <!-- Bottom Controls: Clear & Place Point -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-center space-x-4 pointer-events-auto">
       <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-900/90 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-slate-700 shadow-2xl active:scale-90 transition" title="Clear Points">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -119,14 +145,20 @@
     let basePoint = null;
     let liveLine = null;
     let liveHeightColumn = null;
-    let currentAimPosition = new THREE.Vector3();
+
+    // Smoothed Target Positioning
+    const rawTargetPos = new THREE.Vector3();
+    const smoothedTargetPos = new THREE.Vector3();
 
     const placedAnchors = [];
     const solidLines = [];
 
     const statusText = document.getElementById('status-text');
     const readoutVal = document.getElementById('readout-val');
+    const lockBadge = document.getElementById('lock-badge');
     const overlayElement = document.getElementById('ar-overlay');
+    const crosshairDot = document.getElementById('crosshair-dot');
+    const crosshairRing = document.getElementById('crosshair-ring');
 
     window.setMode = (newMode) => {
       mode = newMode;
@@ -167,7 +199,7 @@
     window.placePoint = () => {
       if (navigator.vibrate) navigator.vibrate(40);
 
-      const targetPos = currentAimPosition.clone();
+      const targetPos = smoothedTargetPos.clone();
 
       if (!basePoint) {
         basePoint = targetPos.clone();
@@ -175,11 +207,12 @@
         scene.add(baseMarker);
         placedAnchors.push(baseMarker);
 
-        statusText.innerText = mode === 'linear' ? "Point A Set! Aim at Point B" : "Base Set! Raise Camera to Top";
+        statusText.innerText = mode === 'linear' ? "Point A Set! Move to Point B" : "Base Set! Raise Camera to Top";
       } else {
         let finalPos = targetPos.clone();
 
         if (mode === 'height') {
+          // Lock strictly to the vertical column above base
           finalPos = new THREE.Vector3(basePoint.x, targetPos.y, basePoint.z);
         }
 
@@ -211,7 +244,7 @@
     };
 
     function createMarker(pos, colorHex) {
-      const geo = new THREE.SphereGeometry(0.018, 16, 16);
+      const geo = new THREE.SphereGeometry(0.016, 16, 16);
       const mat = new THREE.MeshBasicMaterial({ color: colorHex });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(pos);
@@ -220,7 +253,7 @@
 
     function createSolidLine(p1, p2, colorHex) {
       const path = new THREE.LineCurve3(p1, p2);
-      const geo = new THREE.TubeGeometry(path, 1, 0.006, 8, false);
+      const geo = new THREE.TubeGeometry(path, 1, 0.005, 8, false);
       const mat = new THREE.MeshBasicMaterial({ color: colorHex });
       return new THREE.Mesh(geo, mat);
     }
@@ -255,12 +288,13 @@
       });
       document.body.appendChild(arButton);
 
+      // 3D Visual Reticle Ring on Floor/Plane
       const reticleGroup = new THREE.Group();
       const ringGeo = new THREE.RingGeometry(0.032, 0.042, 32).rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x818cf8, side: THREE.DoubleSide });
       reticleGroup.add(new THREE.Mesh(ringGeo, ringMat));
 
-      const innerDotGeo = new THREE.CircleGeometry(0.008, 16).rotateX(-Math.PI / 2);
+      const innerDotGeo = new THREE.CircleGeometry(0.006, 16).rotateX(-Math.PI / 2);
       const innerDotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
       reticleGroup.add(new THREE.Mesh(innerDotGeo, innerDotMat));
 
@@ -316,24 +350,35 @@
 
             reticle.visible = true;
             reticle.matrix.fromArray(pose.transform.matrix);
-            currentAimPosition.setFromMatrixPosition(reticle.matrix);
+            rawTargetPos.setFromMatrixPosition(reticle.matrix);
+
+            crosshairDot.style.background = "#34d399";
+            crosshairRing.style.borderColor = "#34d399";
+            lockBadge.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
           } else {
+            // Smooth Camera-forward raycast fallback
             const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
-            currentAimPosition.copy(camera.position).add(forward);
-            reticle.visible = true;
-            reticle.position.copy(currentAimPosition);
-            reticle.updateMatrix();
+            rawTargetPos.copy(camera.position).add(forward);
+            reticle.visible = false;
+
+            crosshairDot.style.background = "#ffffff";
+            crosshairRing.style.borderColor = "rgba(255, 255, 255, 0.7)";
+            lockBadge.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
           }
         }
 
+        // LERP Position Smoothing to eliminate jitter
+        smoothedTargetPos.lerp(rawTargetPos, 0.25);
+
+        // Live Measuring Pillar / Line
         if (basePoint) {
           if (mode === 'height') {
-            const topPos = new THREE.Vector3(basePoint.x, currentAimPosition.y, basePoint.z);
-            const deltaH = Math.abs(currentAimPosition.y - basePoint.y);
+            const topPos = new THREE.Vector3(basePoint.x, smoothedTargetPos.y, basePoint.z);
+            const deltaH = Math.abs(smoothedTargetPos.y - basePoint.y);
             readoutVal.innerText = formatDist(deltaH);
 
             if (liveHeightColumn) scene.remove(liveHeightColumn);
-            if (deltaH > 0.01) {
+            if (deltaH > 0.005) {
               const path = new THREE.LineCurve3(basePoint, topPos);
               const geo = new THREE.TubeGeometry(path, 1, 0.004, 8, false);
               const mat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
@@ -341,11 +386,11 @@
               scene.add(liveHeightColumn);
             }
           } else {
-            const dist = basePoint.distanceTo(currentAimPosition);
+            const dist = basePoint.distanceTo(smoothedTargetPos);
             readoutVal.innerText = formatDist(dist);
 
             if (liveLine) scene.remove(liveLine);
-            const geo = new THREE.BufferGeometry().setFromPoints([basePoint, currentAimPosition]);
+            const geo = new THREE.BufferGeometry().setFromPoints([basePoint, smoothedTargetPos]);
             const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
             liveLine = new THREE.Line(geo, mat);
             liveLine.computeLineDistances();
@@ -360,3 +405,4 @@
   </script>
 </body>
 </html>
+
