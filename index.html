@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>AR Measure</title>
+  <title>AR Measure App</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     * {
@@ -13,8 +13,8 @@
     html, body {
       margin: 0;
       padding: 0;
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
       background: #000000;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -23,28 +23,28 @@
       -webkit-user-select: none;
     }
     .hud-glass {
-      background: rgba(15, 23, 42, 0.86);
+      background: rgba(15, 23, 42, 0.88);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.16);
     }
     #ARButton {
       position: fixed !important;
-      top: calc(env(safe-area-inset-top, 16px) + 8px) !important;
+      top: 50% !important;
       left: 50% !important;
-      transform: translateX(-50%) !important;
+      transform: translate(-50%, -50%) !important;
       bottom: auto !important;
       background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
       color: #ffffff !important;
       border: 1px solid rgba(255, 255, 255, 0.35) !important;
       border-radius: 9999px !important;
-      padding: 10px 24px !important;
-      font-size: 13px !important;
+      padding: 14px 32px !important;
+      font-size: 15px !important;
       font-weight: 700 !important;
       letter-spacing: 0.5px !important;
       text-transform: uppercase !important;
       z-index: 99999 !important;
-      box-shadow: 0 8px 24px rgba(79, 70, 229, 0.5) !important;
+      box-shadow: 0 8px 28px rgba(79, 70, 229, 0.6) !important;
       cursor: pointer !important;
     }
   </style>
@@ -59,11 +59,9 @@
 </head>
 <body class="relative">
 
-  <!-- WebXR DOM Overlay Container -->
   <div id="ar-overlay" class="fixed inset-0 z-40 pointer-events-none flex flex-col justify-between" 
-       style="padding-top: calc(env(safe-area-inset-top, 0px) + 64px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); padding-left: 16px; padding-right: 16px;">
+       style="padding-top: calc(env(safe-area-inset-top, 0px) + 20px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); padding-left: 16px; padding-right: 16px;">
     
-    <!-- Top HUD: Mode Selector & Unit Toggle -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-between gap-2 pointer-events-auto">
       <div class="hud-glass rounded-2xl p-1 flex space-x-1 shadow-2xl flex-1">
         <button id="btn-linear" onclick="setMode('linear')" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition-all shadow">
@@ -76,23 +74,21 @@
 
       <div class="hud-glass rounded-2xl p-1 shadow-2xl">
         <select id="unit-selector" onchange="setUnit(this.value)" class="bg-transparent text-xs font-bold text-white px-3 py-2 focus:outline-none cursor-pointer">
-          <option value="cm" class="bg-slate-900 text-white">cm</option>
-          <option value="in" class="bg-slate-900 text-white" selected>in</option>
+          <option value="cm" class="bg-slate-900 text-white" selected>cm</option>
           <option value="m" class="bg-slate-900 text-white">m</option>
+          <option value="in" class="bg-slate-900 text-white">in</option>
           <option value="ft" class="bg-slate-900 text-white">ft</option>
         </select>
       </div>
     </div>
 
-    <!-- Center Status & Readout Pill -->
-    <div class="flex flex-col items-center">
+    <div class="flex flex-col items-center pointer-events-none">
       <div class="hud-glass px-6 py-3 rounded-3xl text-center shadow-2xl border border-indigo-500/30 min-w-[210px]">
-        <div id="status-text" class="text-[10px] uppercase font-bold text-amber-300 tracking-wider">Scanning... Move Phone Slowly</div>
-        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5 leading-tight">0.0 in</div>
+        <div id="status-text" class="text-[10px] uppercase font-bold text-indigo-300 tracking-wider">Aim at Base & Tap Place Point</div>
+        <div id="readout-val" class="text-2xl font-mono font-bold text-white mt-0.5 leading-tight">0.0 cm</div>
       </div>
     </div>
 
-    <!-- Bottom Controls -->
     <div class="w-full max-w-sm mx-auto flex items-center justify-center space-x-4 pointer-events-auto">
       <button onclick="clearPoints()" class="w-14 h-14 rounded-2xl bg-slate-900/90 hover:bg-rose-950 text-slate-300 hover:text-rose-400 flex items-center justify-center border border-slate-700 shadow-2xl active:scale-90 transition" title="Clear Points">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,7 +100,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
         </svg>
-        + Place Point
+        Place Point
       </button>
     </div>
 
@@ -118,11 +114,12 @@
     let hitTestSource = null;
     let hitTestSourceRequested = false;
 
-    let mode = 'linear';
-    let unit = 'in';
+    let mode = 'height';
+    let unit = 'cm';
     let basePoint = null;
     let liveLine = null;
-    let latestTargetPos = new THREE.Vector3();
+    let liveHeightColumn = null;
+    let currentAimPosition = new THREE.Vector3();
 
     const placedAnchors = [];
     const solidLines = [];
@@ -140,7 +137,7 @@
       document.getElementById('btn-height').className = newMode === 'height'
         ? "flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 text-white transition-all shadow"
         : "flex-1 py-2 px-3 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all";
-      statusText.innerText = mode === 'linear' ? "Aim at Point A" : "Aim at Ground Base";
+      statusText.innerText = mode === 'linear' ? "Aim at Point A & Tap" : "Aim at Base & Tap";
     };
 
     window.setUnit = (newUnit) => {
@@ -155,58 +152,59 @@
         scene.remove(liveLine);
         liveLine = null;
       }
+      if (liveHeightColumn) {
+        scene.remove(liveHeightColumn);
+        liveHeightColumn = null;
+      }
       placedAnchors.forEach(mesh => scene.remove(mesh));
       solidLines.forEach(line => scene.remove(line));
       placedAnchors.length = 0;
       solidLines.length = 0;
       readoutVal.innerText = formatDist(0);
-      statusText.innerText = mode === 'linear' ? "Aim at Point A" : "Aim at Ground Base";
+      statusText.innerText = mode === 'linear' ? "Aim at Point A & Tap" : "Aim at Base & Tap";
     };
 
     window.placePoint = () => {
       if (navigator.vibrate) navigator.vibrate(40);
 
-      // Determine 3D coordinates from reticle or forward camera fallback
-      let currentPos = new THREE.Vector3();
-      if (reticle && reticle.visible) {
-        currentPos.setFromMatrixPosition(reticle.matrix);
-      } else {
-        const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
-        currentPos.copy(camera.position).add(forward);
-      }
+      const targetPos = currentAimPosition.clone();
 
       if (!basePoint) {
-        basePoint = currentPos.clone();
-        const marker = createMarker(basePoint, 0x10b981);
-        scene.add(marker);
-        placedAnchors.push(marker);
-        statusText.className = "text-[10px] uppercase font-bold text-emerald-300 tracking-wider";
-        statusText.innerText = mode === 'linear' ? "Point A Set! Move to Point B" : "Base Set! Raise Camera Up";
+        basePoint = targetPos.clone();
+        const baseMarker = createMarker(basePoint, 0x10b981);
+        scene.add(baseMarker);
+        placedAnchors.push(baseMarker);
+
+        statusText.innerText = mode === 'linear' ? "Point A Set! Aim at Point B" : "Base Set! Raise Camera to Top";
       } else {
-        let targetPos = currentPos.clone();
+        let finalPos = targetPos.clone();
+
         if (mode === 'height') {
-          targetPos = new THREE.Vector3(basePoint.x, currentPos.y, basePoint.z);
+          finalPos = new THREE.Vector3(basePoint.x, targetPos.y, basePoint.z);
         }
 
-        const marker = createMarker(targetPos, 0xf59e0b);
-        scene.add(marker);
-        placedAnchors.push(marker);
+        const endMarker = createMarker(finalPos, 0xf59e0b);
+        scene.add(endMarker);
+        placedAnchors.push(endMarker);
 
-        const tube = createSolidLine(basePoint, targetPos, mode === 'linear' ? 0x10b981 : 0xf59e0b);
+        const tube = createSolidLine(basePoint, finalPos, mode === 'linear' ? 0x10b981 : 0xf59e0b);
         scene.add(tube);
         solidLines.push(tube);
 
         const measured = mode === 'linear' 
-          ? basePoint.distanceTo(targetPos) 
-          : Math.abs(targetPos.y - basePoint.y);
+          ? basePoint.distanceTo(finalPos) 
+          : Math.abs(finalPos.y - basePoint.y);
 
-        statusText.className = "text-[10px] uppercase font-bold text-indigo-300 tracking-wider";
-        statusText.innerText = mode === 'linear' ? "Linear Distance Complete" : "Vertical Height Complete";
+        statusText.innerText = mode === 'linear' ? "Linear Distance Complete" : "Height Complete";
         readoutVal.innerText = formatDist(measured);
 
         if (liveLine) {
           scene.remove(liveLine);
           liveLine = null;
+        }
+        if (liveHeightColumn) {
+          scene.remove(liveHeightColumn);
+          liveHeightColumn = null;
         }
         basePoint = null;
       }
@@ -222,17 +220,18 @@
 
     function createSolidLine(p1, p2, colorHex) {
       const path = new THREE.LineCurve3(p1, p2);
-      const geo = new THREE.TubeGeometry(path, 1, 0.005, 8, false);
+      const geo = new THREE.TubeGeometry(path, 1, 0.006, 8, false);
       const mat = new THREE.MeshBasicMaterial({ color: colorHex });
       return new THREE.Mesh(geo, mat);
     }
 
     function formatDist(meters) {
       switch (unit) {
-        case 'in': return (meters * 39.37).toFixed(1) + ' in';
         case 'cm': return (meters * 100).toFixed(1) + ' cm';
+        case 'm': return meters.toFixed(2) + ' m';
+        case 'in': return (meters * 39.37).toFixed(1) + ' in';
         case 'ft': return (meters * 3.281).toFixed(2) + ' ft';
-        case 'm': default: return meters.toFixed(2) + ' m';
+        default: return meters.toFixed(2) + ' m';
       }
     }
 
@@ -240,7 +239,7 @@
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.4);
       scene.add(light);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -256,9 +255,8 @@
       });
       document.body.appendChild(arButton);
 
-      // Reticle Design
       const reticleGroup = new THREE.Group();
-      const ringGeo = new THREE.RingGeometry(0.035, 0.045, 32).rotateX(-Math.PI / 2);
+      const ringGeo = new THREE.RingGeometry(0.032, 0.042, 32).rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x818cf8, side: THREE.DoubleSide });
       reticleGroup.add(new THREE.Mesh(ringGeo, ringMat));
 
@@ -271,16 +269,12 @@
       reticle.visible = false;
       scene.add(reticle);
 
-      const controller = renderer.xr.getController(0);
-      controller.addEventListener('select', () => placePoint());
-      scene.add(controller);
-
       renderer.xr.addEventListener('sessionstart', () => {
-        statusText.innerText = "Scanning... Move Phone Slowly";
+        statusText.innerText = "Aim at Base & Tap Place Point";
       });
 
       renderer.xr.addEventListener('sessionend', () => {
-        statusText.innerText = "Tap 'START AR' at Top";
+        statusText.innerText = "Tap 'START AR'";
         hitTestSourceRequested = false;
         hitTestSource = null;
       });
@@ -314,8 +308,6 @@
           hitTestSourceRequested = true;
         }
 
-        let isSurfaceFound = false;
-
         if (hitTestSource) {
           const hitResults = frame.getHitTestResults(hitTestSource);
           if (hitResults.length > 0) {
@@ -324,45 +316,41 @@
 
             reticle.visible = true;
             reticle.matrix.fromArray(pose.transform.matrix);
-            latestTargetPos.setFromMatrixPosition(reticle.matrix);
-            isSurfaceFound = true;
-
-            if (!basePoint) {
-              statusText.className = "text-[10px] uppercase font-bold text-emerald-400 tracking-wider";
-              statusText.innerText = "Surface Locked • Tap Place Point";
-            }
+            currentAimPosition.setFromMatrixPosition(reticle.matrix);
           } else {
-            reticle.visible = false;
             const forward = new THREE.Vector3(0, 0, -1.2).applyQuaternion(camera.quaternion);
-            latestTargetPos.copy(camera.position).add(forward);
-
-            if (!basePoint) {
-              statusText.className = "text-[10px] uppercase font-bold text-amber-300 tracking-wider";
-              statusText.innerText = "Scanning... Move Phone Slowly";
-            }
+            currentAimPosition.copy(camera.position).add(forward);
+            reticle.visible = true;
+            reticle.position.copy(currentAimPosition);
+            reticle.updateMatrix();
           }
         }
 
-        // Live Measuring Line Update
         if (basePoint) {
-          let targetPos = latestTargetPos.clone();
-          let dist = 0;
+          if (mode === 'height') {
+            const topPos = new THREE.Vector3(basePoint.x, currentAimPosition.y, basePoint.z);
+            const deltaH = Math.abs(currentAimPosition.y - basePoint.y);
+            readoutVal.innerText = formatDist(deltaH);
 
-          if (mode === 'linear') {
-            dist = basePoint.distanceTo(targetPos);
+            if (liveHeightColumn) scene.remove(liveHeightColumn);
+            if (deltaH > 0.01) {
+              const path = new THREE.LineCurve3(basePoint, topPos);
+              const geo = new THREE.TubeGeometry(path, 1, 0.004, 8, false);
+              const mat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+              liveHeightColumn = new THREE.Mesh(geo, mat);
+              scene.add(liveHeightColumn);
+            }
           } else {
-            targetPos = new THREE.Vector3(basePoint.x, latestTargetPos.y, basePoint.z);
-            dist = Math.abs(latestTargetPos.y - basePoint.y);
+            const dist = basePoint.distanceTo(currentAimPosition);
+            readoutVal.innerText = formatDist(dist);
+
+            if (liveLine) scene.remove(liveLine);
+            const geo = new THREE.BufferGeometry().setFromPoints([basePoint, currentAimPosition]);
+            const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
+            liveLine = new THREE.Line(geo, mat);
+            liveLine.computeLineDistances();
+            scene.add(liveLine);
           }
-
-          readoutVal.innerText = formatDist(dist);
-
-          if (liveLine) scene.remove(liveLine);
-          const geo = new THREE.BufferGeometry().setFromPoints([basePoint, targetPos]);
-          const mat = new THREE.LineDashedMaterial({ color: 0x818cf8, dashSize: 0.03, gapSize: 0.02 });
-          liveLine = new THREE.Line(geo, mat);
-          liveLine.computeLineDistances();
-          scene.add(liveLine);
         }
       }
       renderer.render(scene, camera);
@@ -372,4 +360,3 @@
   </script>
 </body>
 </html>
-
